@@ -2,8 +2,7 @@ from avlTree import treeNode, avlTree
 
 myTree = avlTree()
 
-# {orderId: node}
-nodes = {}
+nodes = {}                  # {orderId: node}
 orders = {
     "eta": [],              # ascending order
     "priority": [],         # descending order
@@ -17,9 +16,9 @@ currentOrderSize = 0
 def getPriority(orderValue, createTime, valueWeight=0.3, timeWeight=0.7):
     return valueWeight*orderValue/50-timeWeight*createTime
 
+''' print(orderId) '''
 def printByOrder(orderId):
     global orders, nodes
-    # for orderId in nodes.keys():
     orderString = f"{orderId}"
     orderString += f", {nodes[orderId].createTime}"
     orderString += f", {nodes[orderId].value}"
@@ -27,6 +26,7 @@ def printByOrder(orderId):
     orderString += f", {nodes[orderId].eta}"
     return "["+orderString+"]\n"
 
+''' print(time1, time2) '''
 def printByTime(time1, time2):
     global orders
     orderString = ""
@@ -40,7 +40,7 @@ def printByTime(time1, time2):
     else:
         return "There are no orders in that time period\n"
 
-
+''' getRankOfOrder(orderId) '''
 def getRankOfOrder(orderId):
     global orders
     if orderId not in orders["ID"]:
@@ -49,6 +49,7 @@ def getRankOfOrder(orderId):
 
     return f"Order {orderId} will be delivered after {num} orders.\n"
 
+''' createOrder(orderId, currentSystemTime, orderValue, deliveryTime) '''
 def createOrder(orderId, currentSystemTime, orderValue, deliveryTime):
     global orders, nodes, currentOrderSize, lastReturnTime
     ''' Check all delivered orders (and possibly one out for delivery) '''
@@ -134,7 +135,8 @@ def createOrder(orderId, currentSystemTime, orderValue, deliveryTime):
     cutIdx = startIdx if startIdx == 0 or orders["deliveryStatus"][startIdx-1] == 2 else startIdx-1
     for i in range(cutIdx):
         removeKey = orders["priority"][i]
-        myTree.delete(myTree.root, removeKey)   # remove from tree
+        removeId = orders["ID"][i]
+        myTree.delete(myTree.root, removeKey, removeId)   # remove from tree
         nodes[orders["ID"][i]] = None           # destroy node
         del nodes[orders["ID"][i]]              # remove from dict
     
@@ -143,6 +145,7 @@ def createOrder(orderId, currentSystemTime, orderValue, deliveryTime):
 
     # insert to tree and dict
     newOrderNode = treeNode(orderId, currentSystemTime, orderValue, deliveryTime, orderETA, priority)
+    # myTree.inorderTraversal(myTree.root)
     myTree.insert(myTree.root, newOrderNode)
     nodes[orderId] = newOrderNode
     
@@ -151,6 +154,7 @@ def createOrder(orderId, currentSystemTime, orderValue, deliveryTime):
 
     return outputStr
 
+''' cancelOrder(orderId, currentSystemTime) '''
 def cancelOrder(orderId, currentSystemTime):
     global orders, nodes, currentOrderSize, lastReturnTime
     outputStr = ""
@@ -176,8 +180,11 @@ def cancelOrder(orderId, currentSystemTime):
                 del l[:len(deliveredOrders)]    # delete delivered from dict
 
             for id in deliveredOrders:          # destroy delivered and remove from dict
+                keyForDel = nodes[id].priority
+                idForDel = nodes[id].id
                 nodes[id] = None
                 del nodes[id]
+                myTree.delete(myTree.root, keyForDel, idForDel)
 
             currentOrderSize -= len(deliveredOrders)       # update order size
                 
@@ -230,17 +237,24 @@ def cancelOrder(orderId, currentSystemTime):
         del l[orderIdx]                 # delete canceled from dict
         del l[:len(deliveredOrders)]    # delete delivered from dict
     
-    nodes[orderId] = None       # destroy object
-    del nodes[orderId]          # remove from dict
+    keyForDel = nodes[orderId].priority
+    idForDel = nodes[orderId].id
+    nodes[orderId] = None               # destroy object
+    del nodes[orderId]                  # remove from dict
+    myTree.delete(myTree.root, keyForDel, idForDel)
 
-    for id in deliveredOrders:  # destroy delivered and remove from dict
+    for id in deliveredOrders:          # destroy delivered and remove from dict
+        keyForDel = nodes[id].priority
+        idForDel = nodes[id].id
         nodes[id] = None
         del nodes[id]
+        myTree.delete(myTree.root, keyForDel, idForDel)
 
     currentOrderSize -= (1 + len(deliveredOrders))       # update order size
 
     return outputStr
 
+''' updateTime(orderId, currentSystemTime, newDeliveryTime) '''
 def updateTime(orderId, currentSystemTime, newDeliveryTime):
     global orders, nodes, currentOrderSize
     outputStr = ""
@@ -261,8 +275,11 @@ def updateTime(orderId, currentSystemTime, newDeliveryTime):
 
     # delete from nodes
     for id in deliveredOrders:
+        keyForDel = nodes[id].priority
+        idForDel = nodes[id].id
         nodes[id] = None
         del nodes[id]
+        myTree.delete(myTree.root, keyForDel, idForDel)
     
     ''' Check if the order can be updated '''
     if orderId not in nodes or currentSystemTime >= nodes[orderId].eta - nodes[orderId].deliveryTime:
@@ -313,6 +330,7 @@ def updateTime(orderId, currentSystemTime, newDeliveryTime):
     
     return outputStr
 
+''' Output the remaining orders when Quit() '''
 def outputRemaining():
     outputStr = ""
     for id, eta in zip(orders["ID"], orders["eta"]):

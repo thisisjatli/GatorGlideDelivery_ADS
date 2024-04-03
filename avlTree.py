@@ -18,28 +18,22 @@ class treeNode(object):
         rightheight = 0 if not self.rightChild else self.rightChild.height
         self.height = max(leftHeight, rightheight) + 1
 
-    # @classmethod
-    # def createOrder(cls, orderId, curSystemTime, orderVal, deliveryTime):
-    #     eta = curSystemTime + deliveryTime
-    #     return cls(orderId, orderVal, deliveryTime, eta)
-
 class avlTree(object):
     def __init__(self) -> None:
         self.root = None
-        # self.type = "priority"
         
     def insert(self, curr, node):
         if not curr:
             self.root = node
             curr = self.root
         elif node.priority > curr.priority:
-            if node.rightChild:
+            if curr.rightChild:
                 self.insert(curr.rightChild, node)
             else:
                 curr.rightChild = node
                 node.parent = curr
         else:
-            if node.leftChild:
+            if curr.leftChild:
                 self.insert(curr.leftChild, node)
             else:
                 curr.leftChild = node
@@ -47,37 +41,55 @@ class avlTree(object):
         
         curr.updateHeight()
 
-        # if self.getBf(curr) < -1:
-        #     if self.getBf(curr.rightChild) == 1:
-        #         self.rlRotate(curr, curr.rightChild, curr.rightChild.leftChild)
-        #     else:
-        #         self.rRotate(curr, curr.rightChild)
-
-        # elif self.getBf(curr) > 1:
-        #     if self.getBf(curr.leftChild) == -1:
-        #         self.lrRotate(curr, curr.leftChild, curr.leftChild.rightChild)
-        #     else:
-        #         self.lRotate(curr, curr.leftChild)
-
         # balance tree
         self.balanceTree(curr)
 
-    def delete(self, curr, key):
+    def delete(self, curr, key, id):
         if not curr:
             # fell off
             return
-        elif key > curr.priority:
-            self.delete(curr.rightChild, key)
-        elif key < curr.priority:
-            self.delete(curr.leftChild, key)
-        else:
+        
+        elif curr.id == id:
+            parent = curr.parent
             # found key
             # order of node is less than two, simple
             if not curr.leftChild:
                 # it either only has a right child or has none
+                # curr = curr.rightChild
+                if parent is None:
+                    if curr.rightChild is None:
+                        self.root = None
+                    else:
+                        self.root = curr.rightChild
+                        curr.parent = None
+                else:
+                    if curr.rightChild is None:
+                        if parent.leftChild == curr:
+                            parent.leftChild = None
+                        else:
+                            parent.rightChild = None
+                    else:
+                        if parent.leftChild == curr:
+                            parent.leftChild = curr.rightChild
+                            curr.rightChild.parent = parent
+                        else:
+                            parent.rightChild = curr.rightChild
+                            curr.rightChild.parent = parent
                 curr = curr.rightChild
+
             elif not curr.rightChild:
                 # it only has a left child
+                parent = curr.parent
+                if not parent:
+                    self.root = curr.leftChild
+                    curr.leftChild.parent = None
+                else:
+                    if parent.leftChild == curr:
+                        parent.leftChild = curr.leftChild
+                        curr.leftChild.parent = parent
+                    else:
+                        parent.rightChild = curr.leftChild
+                        curr.leftChild.parent = parent
                 curr = curr.leftChild
 
             # order of node is two (has both children)
@@ -85,8 +97,13 @@ class avlTree(object):
                 # find min in right subtree
                 # swap and delete
                 minNode = self.getMin(curr.rightChild)
-                self.swap(curr, minNode)
-                self.delete(curr, key)
+                self.nodeSwap(curr, minNode)
+                self.delete(curr, key, id)
+        
+        elif key > curr.priority:
+            self.delete(curr.rightChild, key, id)
+        elif key <= curr.priority:
+            self.delete(curr.leftChild, key, id)
         
         if curr:
             # update height
@@ -98,12 +115,12 @@ class avlTree(object):
     def rRotate(self, A, B):
         parent = A.parent
 
-        Br = B.rightChild
-        B.rightChild = A
+        Bl = B.leftChild
+        B.leftChild = A
         A.parent = B
-        A.leftChild = Br
-        if Br:
-            Br.parent = A
+        A.rightChild = Bl
+        if Bl:
+            Bl.parent = A
         B.parent = parent
 
         A.updateHeight()
@@ -121,12 +138,12 @@ class avlTree(object):
     def lRotate(self, A, B):
         parent = A.parent
 
-        Bl = B.leftChild
-        B.leftChild = A
+        Br = B.rightChild
+        B.rightChild = A
         A.parent = B
-        A.rightChild = Bl
-        if Bl:
-            Bl.parent = A
+        A.leftChild = Br
+        if Br:
+            Br.parent = A
         B.parent = parent
 
         A.updateHeight()
@@ -150,6 +167,8 @@ class avlTree(object):
         self.lRotate(A, C)
     
     def balanceTree(self, curr):
+        if not curr:
+            return
         if self.getBf(curr) < -1:
             if self.getBf(curr.rightChild) == 1:
                 self.rlRotate(curr, curr.rightChild, curr.rightChild.leftChild)
