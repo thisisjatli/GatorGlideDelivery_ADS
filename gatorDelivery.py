@@ -1,24 +1,14 @@
 from avlTree import treeNode, avlTree
 
 myTree = avlTree()
-
 nodes = {}                  # {orderId: node}
-orders = {
-    "eta": [],              # ascending order
-    "priority": [],         # descending order
-    "ID": [],               # id
-    "deliveryTime": [],     # delivery time
-    "deliveryStatus": [],   # 0: not started, 1: out for delivery, 2: delivered
-}
-lastReturnTime = 0
-currentOrderSize = 0
+outForDelivery = []
 
 def getPriority(orderValue, createTime, valueWeight=0.3, timeWeight=0.7):
     return valueWeight*orderValue/50-timeWeight*createTime
 
 ''' print(orderId) '''
 def printByOrder(orderId):
-    global orders, nodes
     orderString = f"{orderId}"
     orderString += f", {nodes[orderId].createTime}"
     orderString += f", {nodes[orderId].value}"
@@ -28,312 +18,191 @@ def printByOrder(orderId):
 
 ''' print(time1, time2) '''
 def printByTime(time1, time2):
-    global orders
-    orderString = ""
-    for i in range(currentOrderSize):
-        if orders["eta"][i] > time2:
-            break
-        elif orders["eta"][i] >= time1:
-            orderString += f"{orders['ID'][i]}, "
-    if len(orderString) > 0:
-        return "["+orderString[:-2]+"]\n"
-    else:
+    
+    allOrders = myTree.findOrdersTimeInterval(myTree.root, time1, time2)
+    if len(allOrders) == 0 and len(outForDelivery) == 0:
         return "There are no orders in that time period\n"
+    
+    outputString = ""
+    if len(outForDelivery) > 0 and outForDelivery[0].eta >= time1 and outForDelivery[0].eta <= time2:
+        outputString += f"{outForDelivery[0].id}, "
+    for order in allOrders:
+        outputString += f"{order}, "
+    
+    if len(outputString) > 0:
+        return "["+outputString[:-2]+"]\n"
+
+    return "There are no orders in that time period\n"
 
 ''' getRankOfOrder(orderId) '''
 def getRankOfOrder(orderId):
-    global orders
-    if orderId not in orders["ID"]:
+    num = myTree.findOrderRank(myTree.root, orderId)
+    if orderId not in nodes:
         return ""
-    num = orders["ID"].index(orderId)
-
+    
+    theETA = nodes[orderId].eta
+    num = myTree.findOrderRank(myTree.root, theETA) + len(outForDelivery)
+    
     return f"Order {orderId} will be delivered after {num} orders.\n"
 
 ''' createOrder(orderId, currentSystemTime, orderValue, deliveryTime) '''
 def createOrder(orderId, currentSystemTime, orderValue, deliveryTime):
-    global orders, nodes, currentOrderSize, lastReturnTime
-    ''' Check all delivered orders (and possibly one out for delivery) '''
-    timestamp = max(currentSystemTime, lastReturnTime)
-    startIdx = 0    # from which order we need to consider
-    deliveredOrders = {}
-    for i in range(currentOrderSize):
-        if currentSystemTime >= orders["eta"][i]:    # I thought it's >=
-            # order has been delivered
-            orders["deliveryStatus"][i] = 2
-            deliveredOrders[orders["ID"][i]] = orders["eta"][i]
-            startIdx = i+1
+    global outForDelivery
+    # test - check delivered
+    deliveredString = ""
+    insertTimetmp = 0
+    if len(outForDelivery) > 0 and outForDelivery[0].eta <= currentSystemTime:
+        insertTimetmp = outForDelivery[0].eta + outForDelivery[0].deliveryTime
+        deliveredString += f"Order {outForDelivery[0].id} has been delivered at time {outForDelivery[0].eta}\n"
+        del nodes[outForDelivery[0].id]              # remove from dict
+        outForDelivery.clear()
 
-            # if delivery man is still on his way back
-            timestamp = max(timestamp, orders["eta"][i]+orders["deliveryTime"][i])
-            lastReturnTime = orders["eta"][i]+orders["deliveryTime"][i]
+    insertTime, deliveredTest = myTree.findDelivered(myTree.root, currentSystemTime, outForDelivery)
+    insertTime = max(insertTime, insertTimetmp)
+    
+    for id, eta in deliveredTest:
+        deliveredString += f"Order {id} has been delivered at time {eta}\n"
+        removeKey = nodes[id].priority
+        myTree.delete(myTree.root, removeKey, id)   # remove from tree
+        nodes[id] = outForDelivery # destroy node
 
-        elif currentSystemTime >= orders["eta"][i]-orders["deliveryTime"][i]:
-            # order is out for delivery
-            orders["deliveryStatus"][i] = 1
-            startIdx = i+1
-            timestamp = orders["eta"][i]+orders["deliveryTime"][i]
-            lastReturnTime = orders["eta"][i]+orders["deliveryTime"][i]
-            break
+    if len(outForDelivery) > 0:
+        removeKey = outForDelivery[0].priority
+        myTree.delete(myTree.root, removeKey, outForDelivery[0].id)   # remove from tree
+        nodes[outForDelivery[0].id] = outForDelivery[0]          # destroy node
 
-        else:
-            # delivery man is idle
-            break
-
-    ''' Calculate priority '''
+    orderETA = insertTime + deliveryTime
+    # orderETA = currentSystemTime + deliveryTime
     priority = getPriority(orderValue, currentSystemTime)
+    newOrderNode = treeNode(orderId, currentSystemTime, orderValue, deliveryTime, orderETA, priority)
+    updatedTest = myTree.insert(myTree.root, newOrderNode)
+    nodes[orderId] = newOrderNode
 
-    # search where to put in the order and get eta
-    insertRank = currentOrderSize
-    for i in range(startIdx, currentOrderSize):
-        if priority > orders["priority"][i]:
-            insertRank = i
-            break
-    
-    if insertRank == startIdx:
-        orderETA = timestamp + deliveryTime
-    else:
-        prevEndTime = orders["eta"][insertRank-1] + orders["deliveryTime"][insertRank-1]
-        orderETA = prevEndTime + deliveryTime
-
-    
-    ''' Update other orders '''
-    updatedOrders = {}
-    prevEndTime = orderETA + deliveryTime
-    for i in range(insertRank, currentOrderSize):
-        currStartTime = orders["eta"][i]-orders["deliveryTime"][i]
+    updatedTuple = []
+    prevEndTime = newOrderNode.eta + newOrderNode.deliveryTime
+    for id in updatedTest:
+        currStartTime = nodes[id].eta - nodes[id].deliveryTime
         if currStartTime < prevEndTime:
             offset = abs(prevEndTime-currStartTime)
-            orders["eta"][i] += offset
-            updatedOrders[orders["ID"][i]] = orders["eta"][i]
-        prevEndTime = orders["eta"][i]+orders["deliveryTime"][i]
+            nodes[id].eta += offset
+            updatedTuple.append((id, nodes[id].eta))
+        prevEndTime = nodes[id].eta+nodes[id].deliveryTime
 
-    ''' Output '''
-    outputStr = ""
-    # created order
-    outputStr += f"Order {orderId} has been created - ETA: {orderETA}\n"
-
-    # updated orders
-    if len(updatedOrders) > 0:
-        updatedString = ""
-        for id, eta in updatedOrders.items():
+    updatedString = ""
+    if len(updatedTuple) > 0:
+        updatedString = "Updated ETAs: ["
+        for id, eta in updatedTuple:
             updatedString += f"{id}: {eta}, "
-        outputStr += "Updated ETAs: [" + updatedString[:-2] + "]\n"
-
-    # delivered orders
-    if len(deliveredOrders) > 0:
-        for id, eta in deliveredOrders.items():
-            outputStr += f"Order {id} has been delivered at time {eta}\n"
-
-    ''' Update dictionary and data structure '''
-    # insert to lists
-    orders["ID"].insert(insertRank, orderId)
-    orders["eta"].insert(insertRank, orderETA)
-    orders["priority"].insert(insertRank, priority)
-    orders["deliveryTime"].insert(insertRank, deliveryTime)
-    orders["deliveryStatus"].insert(insertRank, 0)
-
-    cutIdx = startIdx if startIdx == 0 or orders["deliveryStatus"][startIdx-1] == 2 else startIdx-1
-    for i in range(cutIdx):
-        removeKey = orders["priority"][i]
-        removeId = orders["ID"][i]
-        myTree.delete(myTree.root, removeKey, removeId)   # remove from tree
-        nodes[orders["ID"][i]] = None           # destroy node
-        del nodes[orders["ID"][i]]              # remove from dict
-    
-    for l in orders.values():
-        del l[:cutIdx]                          # remove from lists
-
-    # insert to tree and dict
-    newOrderNode = treeNode(orderId, currentSystemTime, orderValue, deliveryTime, orderETA, priority)
-    # myTree.inorderTraversal(myTree.root)
-    myTree.insert(myTree.root, newOrderNode)
-    nodes[orderId] = newOrderNode
-    
-    # update order size
-    currentOrderSize = currentOrderSize - cutIdx + 1
-
-    return outputStr
+        updatedString = updatedString[:-2] + "]\n"
+    return f"Order {orderId} has been created - ETA: {nodes[orderId].eta}\n" + updatedString + deliveredString
 
 ''' cancelOrder(orderId, currentSystemTime) '''
 def cancelOrder(orderId, currentSystemTime):
-    global orders, nodes, currentOrderSize, lastReturnTime
-    outputStr = ""
+    global outForDelivery
+    deliveredString = ""
+    if len(outForDelivery) > 0 and outForDelivery[0].eta <= currentSystemTime:
+        deliveredString += f"Order {outForDelivery[0].id} has been delivered at time {outForDelivery[0].eta}\n"
+        del nodes[outForDelivery[0].id]              # remove from dict
+        outForDelivery.clear()
 
-    ''' Check delivered orders '''
-    deliveredOrders = {}
-    for i in range(currentOrderSize):
-        if currentSystemTime >= orders["eta"][i]:
-            deliveredOrders[orders["ID"][i]] = orders["eta"][i]
-        else:
-            break
+    _, deliveredTest = myTree.findDelivered(myTree.root, currentSystemTime, outForDelivery)
 
-    ''' Check if the order can be cancelled '''
+    for id, eta in deliveredTest:
+        deliveredString += f"Order {id} has been delivered at time {eta}\n"
+        removeKey = nodes[id].priority
+        myTree.delete(myTree.root, removeKey, id)   # remove from tree
+        nodes[id] = None           # destroy node
+        del nodes[id]              # remove from dict
+
+    if len(outForDelivery) > 0:
+        removeKey = outForDelivery[0].priority
+        myTree.delete(myTree.root, removeKey, outForDelivery[0].id)   # remove from tree
+        nodes[outForDelivery[0].id] = outForDelivery[0]          # destroy node
+
     if orderId not in nodes or currentSystemTime >= nodes[orderId].eta - nodes[orderId].deliveryTime:
-        outputStr += f"Cannot cancel. Order {orderId} has already been delivered.\n"
-        
-        # delivered orders
-        if len(deliveredOrders) > 0:
-            for id, eta in deliveredOrders.items():
-                outputStr += f"Order {id} has been delivered at time {eta}\n"
-
-            for l in orders.values():
-                del l[:len(deliveredOrders)]    # delete delivered from dict
-
-            for id in deliveredOrders:          # destroy delivered and remove from dict
-                keyForDel = nodes[id].priority
-                idForDel = nodes[id].id
-                nodes[id] = None
-                del nodes[id]
-                myTree.delete(myTree.root, keyForDel, idForDel)
-
-            currentOrderSize -= len(deliveredOrders)       # update order size
-                
-        return outputStr
+        return f"Cannot cancel. Order {orderId} has already been delivered.\n" + deliveredString
     
-    ''' Update other orders '''
-    orderIdx = orders["ID"].index(orderId)
-    if orderIdx == currentOrderSize - 1:
-        # delete it directly
-        for l in orders.values():
-            del l[orderIdx]
-        nodes[orderId] = None
-        del nodes[orderId]
-        currentOrderSize -= 1
-        return f"Order {orderId} has been canceled\n"
-    
-    # updated orders should be based on timestamp
-    timestamp = max(currentSystemTime, lastReturnTime)
-    if orderIdx >= 1:
-        timestamp = max(timestamp, orders["eta"][orderIdx-1]+orders["deliveryTime"][orderIdx-1])
+    keyPrio = nodes[orderId].priority
+    prevEndTime = nodes[orderId].eta - nodes[orderId].deliveryTime
+    newPrevEndTime, deleteTest = myTree.delete(myTree.root, keyPrio, orderId)
+    nodes[orderId] = None
+    del nodes[orderId]
 
-    updatedOrders = {}
-    prevEndTime = timestamp
-    for i in range(orderIdx+1, currentOrderSize):
-        currStartTime = orders["eta"][i] - orders["deliveryTime"][i]
+    updatedTuple = []
+    prevEndTime = min(prevEndTime, newPrevEndTime)
+    for id in deleteTest:
+        currStartTime = nodes[id].eta - nodes[id].deliveryTime
         if currStartTime > prevEndTime:
             offset = abs(currStartTime-prevEndTime)
-            orders["eta"][i] -= offset
-            updatedOrders[orders["ID"][i]] = orders["eta"][i]
-        prevEndTime = orders["eta"][i] + orders["deliveryTime"][i]
+            nodes[id].eta -= offset
+            updatedTuple.append((id, nodes[id].eta))
+        prevEndTime =nodes[id].eta + nodes[id].deliveryTime
 
-    ''' Output '''
-    # order cancelled
-    outputStr += f"Order {orderId} has been canceled\n"
+    updateString = "" if len(updatedTuple) == 0 else "Updated ETAs: ["
+    for id, eta in updatedTuple:
+        updateString += f"{id}: {eta}, "
+    updateString = updateString[:-2] + "]\n" if len(updatedTuple) > 0 else ""
 
-    # updated orders
-    if len(updatedOrders) > 0:
-        updatedString = ""
-        for id, eta in updatedOrders.items():
-            updatedString += f"{id}: {eta}, "
-        outputStr += "Updated ETAs: [" + updatedString[:-2] + "]\n"
-
-    # delivered orders
-    if len(deliveredOrders) > 0:
-        for id, eta in deliveredOrders.items():
-            outputStr += f"Order {id} has been delivered at time {eta}\n"
+    return f"Order {orderId} has been canceled\n" + updateString + deliveredString
     
-    ''' Update dictionary and data structure '''
-    for l in orders.values():
-        del l[orderIdx]                 # delete canceled from dict
-        del l[:len(deliveredOrders)]    # delete delivered from dict
-    
-    keyForDel = nodes[orderId].priority
-    idForDel = nodes[orderId].id
-    nodes[orderId] = None               # destroy object
-    del nodes[orderId]                  # remove from dict
-    myTree.delete(myTree.root, keyForDel, idForDel)
-
-    for id in deliveredOrders:          # destroy delivered and remove from dict
-        keyForDel = nodes[id].priority
-        idForDel = nodes[id].id
-        nodes[id] = None
-        del nodes[id]
-        myTree.delete(myTree.root, keyForDel, idForDel)
-
-    currentOrderSize -= (1 + len(deliveredOrders))       # update order size
-
-    return outputStr
 
 ''' updateTime(orderId, currentSystemTime, newDeliveryTime) '''
 def updateTime(orderId, currentSystemTime, newDeliveryTime):
-    global orders, nodes, currentOrderSize
-    outputStr = ""
+    global outForDelivery
+    deliveredString = ""
+    if len(outForDelivery) > 0 and outForDelivery[0].eta <= currentSystemTime:
+        deliveredString += f"Order {outForDelivery[0].id} has been delivered at time {outForDelivery[0].eta}\n"
+        del nodes[outForDelivery[0].id]              # remove from dict
+        outForDelivery.clear()
 
-    ''' Check delivered orders '''
-    deliveredOrders = {}
-    for i in range(currentOrderSize):
-        if currentSystemTime >= orders["eta"][i]:
-            deliveredOrders[orders["ID"][i]] = orders["eta"][i]
-        else:
-            break
+    _, deliveredTest = myTree.findDelivered(myTree.root, currentSystemTime, outForDelivery)
 
-    # delete delivered orders from dict
-    for l in orders.values():
-        del l[:len(deliveredOrders)]
-    
-    currentOrderSize -= len(deliveredOrders)
+    for id, eta in deliveredTest:
+        deliveredString += f"Order {id} has been delivered at time {eta}\n"
+        removeKey = nodes[id].priority
+        myTree.delete(myTree.root, removeKey, id)   # remove from tree
+        nodes[id] = None           # destroy node
+        del nodes[id]              # remove from dict
 
-    # delete from nodes
-    for id in deliveredOrders:
-        keyForDel = nodes[id].priority
-        idForDel = nodes[id].id
-        nodes[id] = None
-        del nodes[id]
-        myTree.delete(myTree.root, keyForDel, idForDel)
-    
-    ''' Check if the order can be updated '''
+    if len(outForDelivery) > 0:
+        removeKey = outForDelivery[0].priority
+        myTree.delete(myTree.root, removeKey, outForDelivery[0].id)   # remove from tree
+        nodes[outForDelivery[0].id] = outForDelivery[0]          # destroy node
+
     if orderId not in nodes or currentSystemTime >= nodes[orderId].eta - nodes[orderId].deliveryTime:
-        outputStr += f"Cannot update. Order {orderId} has already been delivered.\n"
-        
-        # delivered orders
-        if len(deliveredOrders) > 0:
-            for id, eta in deliveredOrders.items():
-                outputStr += f"Order {id} has been delivered at time {eta}\n"
-        
-        return outputStr
+        return f"Cannot update. Order {orderId} has already been delivered.\n" + deliveredString
     
-    
-    ''' Updated orders '''
-    orderIdx = orders["ID"].index(orderId)
-    offset = newDeliveryTime - orders["deliveryTime"][orderIdx]
-    orders["eta"][orderIdx] += offset                   # update eta
-    orders["deliveryTime"][orderIdx] = newDeliveryTime  # update delivery time
-    nodes[orderId].eta = orders["eta"][orderIdx]        # update nodes
+    updateTest = myTree.updateOrderTime(myTree.root, orderId, nodes[orderId].priority)
+
+    offset = newDeliveryTime-nodes[orderId].deliveryTime
+    nodes[orderId].eta = nodes[orderId].eta + offset
     nodes[orderId].deliveryTime = newDeliveryTime
+    updateTuple = [(orderId, nodes[orderId].eta)]
 
-    updatedOrders = {}
-    if offset != 0:
-        updatedOrders[orderId] = orders["eta"][orderIdx]
-
-    prevEndTime = orders["eta"][orderIdx] + newDeliveryTime
-    for i in range(orderIdx+1, currentOrderSize):
-        currStartTime = orders["eta"][i] - orders["deliveryTime"][i]
+    prevEndTime = nodes[orderId].eta + newDeliveryTime
+    for id in updateTest:
+        currStartTime = nodes[id].eta - nodes[id].deliveryTime
         offset = prevEndTime - currStartTime
-        orders["eta"][i] += offset              # update dict
-        nodes[orders["ID"][i]].eta += offset    # update nodes
-        updatedOrders[orders["ID"][i]] = orders["eta"][i]
-        prevEndTime = orders["eta"][i] + orders["deliveryTime"][i]
+        nodes[id].eta += offset    # update nodes
+        updateTuple.append((id, nodes[id].eta))
+        prevEndTime = nodes[id].eta + nodes[id].deliveryTime
 
+    updateString = "Updated ETAs: ["
+    for id, eta in updateTuple:
+        updateString += f"{id}: {eta}, "
+    updateString = updateString[:-2] + "]\n"
 
-    ''' Output '''
-    # updated orders
-    if len(updatedOrders) > 0:
-        updatedString = ""
-        for id, eta in updatedOrders.items():
-            updatedString += f"{id}: {eta}, "
-        outputStr += "Updated ETAs: [" + updatedString[:-2] + "]\n"
-    
-    # delivered orders
-    if len(deliveredOrders) > 0:
-        for id, eta in deliveredOrders.items():
-            outputStr += f"Order {id} has been delivered at time {eta}\n"
-    
-    return outputStr
+    return updateString + deliveredString
+
 
 ''' Output the remaining orders when Quit() '''
 def outputRemaining():
+    remainList = myTree.outputRemaining(myTree.root)
+
     outputStr = ""
-    for id, eta in zip(orders["ID"], orders["eta"]):
+    if len(outForDelivery) > 0:
+        outputStr += f"Order {outForDelivery[0].id} has been delivered at time {outForDelivery[0].eta}\n"
+    for id, eta in remainList:
         outputStr += f"Order {id} has been delivered at time {eta}\n"
 
     return outputStr
